@@ -19,3 +19,9 @@ This is a minimal submission that satisfies:
    python -m venv venv
    source venv/bin/activate   # or venv\Scripts\activate on Windows
    pip install websockets
+## 🖼 Game Screenshot
+![Game Screenshot](./Screenshot.png)
+
+## 🎥 Demo Video
+https://drive.google.com/file/d/1Rr736Lk9NQjuzL3JP1naCmpk6BSbQ9pf/view?usp=sharing
+
