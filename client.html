@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>Multiplayer Coin Game</title>
+<style>
+  :root{
+    --bg: #0f1724;
+    --panel: #0b1320;
+    --accent: #2b85f0;
+    --muted: #98a0b3;
+    --card: #0f172b;
+  }
+  html,body{height:100%; margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background: linear-gradient(180deg,#071019 0%, #07182a 100%); color:#e6eef6;}
+  .container{max-width:1100px; margin:18px auto; padding:16px;}
+  h2{margin:6px 0 12px; font-weight:600; color:var(--accent);}
+  .topbar{
+    display:flex; gap:12px; align-items:center; justify-content:space-between;
+    margin-bottom:10px;
+  }
+  #statusBanner{
+    padding:10px 14px; border-radius:10px; background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    display:flex; gap:12px; align-items:center;
+    font-size:14px;
+  }
+  #timer{
+    min-width:180px; text-align:center;
+  }
+  #timeText{font-size:18px; font-weight:700; color:#fff;}
+  #timeSub{font-size:12px; color:var(--muted); margin-top:2px;}
+  #timeBar{
+    width:220px; height:10px; border-radius:6px; overflow:hidden; background:#071428; margin-top:6px; border:1px solid rgba(255,255,255,0.03);
+  }
+  #timeFill{height:100%; width:0%; background: linear-gradient(90deg,var(--accent), #6cc7ff); transition:width 0.15s linear;}
+
+  .layout{
+    display:grid; grid-template-columns: 260px 1fr; gap:14px;
+  }
+  #sidebar{
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:12px; padding:12px;
+    box-shadow: 0 6px 20px rgba(10,14,24,0.6);
+  }
+  #scoreboardTitle{color:var(--muted); font-size:13px; margin-bottom:8px;}
+  #scoreboard{font-size:15px; line-height:1.9;}
+  .playerRow{display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-radius:8px;}
+  .playerBadge{display:inline-block; width:14px; height:14px; border-radius:4px; margin-right:8px; box-shadow:0 1px 0 rgba(0,0,0,0.6);}
+  .myRow{background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));}
+
+  #canvasWrap{position:relative; border-radius:12px; overflow:hidden; box-shadow: 0 10px 30px rgba(4,8,16,0.6); background: linear-gradient(180deg,#041427 0%, #071827 100%); padding:12px;}
+  canvas{display:block; margin:0 auto; background:#071120; border-radius:6px; border:2px solid rgba(255,255,255,0.03);}
+
+  /* Winner overlay */
+  #overlay{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;
+  }
+  .overlayCard{
+    pointer-events:auto;
+    background: linear-gradient(180deg, rgba(12,18,30,0.95), rgba(6,10,18,0.92));
+    border-radius:14px; padding:18px 22px; text-align:center; box-shadow: 0 12px 40px rgba(2,6,12,0.7);
+  }
+  .overlayTitle{font-size:22px; font-weight:800; color:var(--accent); margin-bottom:6px;}
+  .overlaySub{font-size:14px; color:var(--muted); margin-bottom:8px;}
+  .overlayWinner{font-size:20px; font-weight:700;}
+
+  #status{margin-top:6px; color:var(--muted); font-size:13px; text-align:center;}
+  @media (max-width:900px){
+    .layout{grid-template-columns:1fr; }
+    #timeBar{width:100%}
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>Multiplayer Coin Game</h2>
+
+  <div class="topbar">
+    <div id="statusBanner">
+      <div id="connectState">Connecting...</div>
+      <div id="serverInfo" style="color:var(--muted); font-size:13px;"></div>
+    </div>
+
+    <div id="timer">
+      <div id="timeText">--:--</div>
+      <div id="timeSub">Waiting for round...</div>
+      <div id="timeBar"><div id="timeFill"></div></div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div id="sidebar">
+      <div id="scoreboardTitle">Scoreboard</div>
+      <div id="scoreboard">Waiting for players...</div>
+    </div>
+
+    <div id="canvasWrap">
+      <div style="text-align:center; margin-bottom:8px; color:var(--muted); font-size:13px;">Use WASD or arrow keys to move</div>
+      <canvas id="game" width="800" height="500"></canvas>
+      <div id="overlay" style="display:none;">
+        <div class="overlayCard">
+          <div class="overlayTitle" id="overlayTitle">Round Over</div>
+          <div class="overlaySub" id="overlaySub">Intermission — next round starting soon</div>
+          <div class="overlayWinner" id="overlayWinner"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+</div>
+
+<script>
+/* ====== CONFIG: using your public ngrok host ======
+   IMPORTANT: PUBLIC_WS_HOST should be the hostname only (no scheme).
+   Example: "8a8ab741bfde.ngrok-free.app"
+*/
+const PUBLIC_WS_HOST = "8a8ab741bfde.ngrok-free.app"; // <<-- set to your public hostname (no https://)
+const LOCAL_WS_HOST = "127.0.0.1:8765"; // kept for reference but won't be used if PUBLIC_WS_HOST is set
+
+function isProbablyLocal(h){
+  if(!h) return true;
+  const lh = h.toLowerCase();
+  return lh.includes("localhost") || lh.startsWith("127.") || lh === "0.0.0.0" || lh === "::1";
+}
+
+if(!PUBLIC_WS_HOST || isProbablyLocal(PUBLIC_WS_HOST)){
+  // stop and show message in UI (public-only)
+  const msg = "PUBLIC_WS_HOST is not configured or looks local. Please set PUBLIC_WS_HOST to your public hostname (ngrok host) in the script.";
+  console.error(msg);
+  document.getElementById("connectState").textContent = "Public host required";
+  document.getElementById("serverInfo").textContent = "";
+  document.getElementById("status").textContent = msg;
+  throw new Error(msg);
+}
+
+function buildWsUrl() {
+  const h = PUBLIC_WS_HOST.trim();
+  // if user accidentally pasted full URL allow it
+  if(h.startsWith("ws://") || h.startsWith("wss://")) return h;
+  // choose wss if the page is loaded over https
+  const scheme = (location.protocol === "https:") ? "wss" : "ws";
+  return `${scheme}://${h}`;
+}
+
+const WS_URL = buildWsUrl();
+console.log("Client will attempt WebSocket URL:", WS_URL);
+document.getElementById("serverInfo").textContent = WS_URL;
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const scoreboard = document.getElementById("scoreboard");
+const statusEl = document.getElementById("status");
+const connectState = document.getElementById("connectState");
+const serverInfo = document.getElementById("serverInfo");
+const timeText = document.getElementById("timeText");
+const timeSub = document.getElementById("timeSub");
+const timeFill = document.getElementById("timeFill");
+const overlay = document.getElementById("overlay");
+const overlayTitle = document.getElementById("overlayTitle");
+const overlaySub = document.getElementById("overlaySub");
+const overlayWinner = document.getElementById("overlayWinner");
+
+let players = {};
+let coin = null;
+let smoothPlayers = {};
+let client = { ws: null, pid: null, color: null, input: { up:false, down:false, left:false, right:false } };
+let gameDuration = 180;
+let lastWinner = null;
+let gameActive = false;
+let lastStateReceived = null;
+
+function connect() {
+  try {
+    client.ws = new WebSocket(WS_URL);
+  } catch (e) {
+    console.error("WebSocket construction failed:", e);
+    connectState.textContent = "Invalid WS URL";
+    serverInfo.textContent = WS_URL;
+    statusEl.textContent = "Check WS_URL in client config";
+    return;
+  }
+
+  client.ws.onopen = () => {
+    connectState.textContent = "Connected";
+    serverInfo.textContent = WS_URL;
+    statusEl.textContent = "";
+  };
+
+  client.ws.onclose = (ev) => {
+    connectState.textContent = "Disconnected — retrying";
+    statusEl.textContent = "Connection lost — retrying in 2s";
+    setTimeout(connect, 2000);
+  };
+
+  client.ws.onerror = (ev) => {
+    console.error("WebSocket error", ev);
+    statusEl.textContent = "WebSocket error (see console)";
+  };
+
+  client.ws.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      lastStateReceived = Date.now();
+
+      if (data.type === "welcome") {
+        client.pid = data.id;
+        client.color = data.color;
+        gameDuration = data.game_duration || gameDuration;
+        return;
+      }
+
+      if (data.type === "state") {
+        players = data.players || {};
+        coin = data.coin || null;
+        gameActive = !!data.game_active;
+        lastWinner = data.last_winner || null;
+        gameDuration = data.game_duration || gameDuration;
+        updateScoreboard();
+        for (let pid in players) {
+          if (!smoothPlayers[pid]) smoothPlayers[pid] = { x: players[pid].x, y: players[pid].y };
+        }
+        for (let pid in smoothPlayers) {
+          if (!players[pid]) delete smoothPlayers[pid];
+        }
+
+        const timeLeft = (typeof data.time_left !== "undefined") ? data.time_left : null;
+        updateTimer(timeLeft, gameActive);
+        if (!gameActive && lastWinner !== null) {
+          showOverlayForWinner(lastWinner, data);
+        } else {
+          hideOverlay();
+        }
+      }
+    } catch (err) {
+      console.error("Failed to parse WS message:", err, ev.data);
+    }
+  };
+}
+
+connect();
+
+// Input handling
+const keyMap = {
+  w:"up", s:"down", a:"left", d:"right",
+  arrowup:"up", arrowdown:"down", arrowleft:"left", arrowright:"right"
+};
+document.addEventListener("keydown", (e) => {
+  const dir = keyMap[e.key.toLowerCase()];
+  if (dir) client.input[dir] = true;
+});
+document.addEventListener("keyup", (e) => {
+  const dir = keyMap[e.key.toLowerCase()];
+  if (dir) client.input[dir] = false;
+});
+
+setInterval(() => {
+  if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+    client.ws.send(JSON.stringify({ type: "input", input: client.input }));
+  }
+}, 80);
+
+// Scoreboard render
+function updateScoreboard(){
+  let html = "";
+  const rows = [];
+  for (let pid in players) {
+    rows.push([parseInt(pid), players[pid].score, players[pid].color]);
+  }
+  rows.sort((a,b)=> b[1]-a[1] || a[0]-b[0]);
+  for (let [pid, score, color] of rows) {
+    const mine = pid === client.pid;
+    html += `<div class="playerRow ${mine ? 'myRow' : ''}">
+               <div style="display:flex; align-items:center;">
+                 <span class="playerBadge" style="background:${color}"></span>
+                 <strong style="${mine ? 'color:#fff' : 'color:var(--muted)'}">P${pid}</strong>
+               </div>
+               <div style="font-weight:700; color:${mine ? '#fff' : 'var(--muted)'}">${score}</div>
+             </div>`;
+  }
+  scoreboard.innerHTML = html || "Waiting for players...";
+}
+
+// Interpolation
+function interpolatePlayers() {
+  const alpha = 0.2;
+  for (let pid in players) {
+    const target = players[pid];
+    const sp = smoothPlayers[pid] || (smoothPlayers[pid] = { x: target.x, y: target.y });
+    sp.x += (target.x - sp.x) * alpha;
+    sp.y += (target.y - sp.y) * alpha;
+  }
+}
+
+// Timer UI update
+function updateTimer(timeLeft, active) {
+  if (timeLeft === null || typeof timeLeft === "undefined") {
+    timeText.textContent = "--:--";
+    timeSub.textContent = active ? "Running..." : "Waiting for round...";
+    timeFill.style.width = "0%";
+    return;
+  }
+  const mm = String(Math.floor(timeLeft / 60)).padStart(2,"0");
+  const ss = String(timeLeft % 60).padStart(2,"0");
+  timeText.textContent = `${mm}:${ss}`;
+  timeSub.textContent = active ? "Round in progress" : "Intermission / Round over";
+  const pct = Math.max(0, Math.min(1, timeLeft / gameDuration));
+  timeFill.style.width = `${pct * 100}%`;
+}
+
+// Overlay show/hide
+function showOverlayForWinner(winnerPid, data) {
+  overlay.style.display = "flex";
+  overlayTitle.textContent = "Round Over";
+  if (winnerPid === null) {
+    overlaySub.textContent = "No winner";
+    overlayWinner.textContent = "";
+  } else {
+    const wscore = data.players && data.players[winnerPid] ? data.players[winnerPid].score : "(score)";
+    overlaySub.textContent = `Player ${winnerPid} wins with ${wscore} coins!`;
+    overlayWinner.textContent = `🏆 Player ${winnerPid}`;
+  }
+}
+function hideOverlay() {
+  overlay.style.display = "none";
+}
+
+// Render loop
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  interpolatePlayers();
+
+  // coin
+  if (coin) {
+    ctx.beginPath();
+    ctx.fillStyle = "gold";
+    ctx.arc(coin.x, coin.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#8b6b00";
+    ctx.stroke();
+  }
+
+  // players
+  ctx.font = "14px Arial";
+  for (let pid in players) {
+    const p = players[pid];
+    const sp = smoothPlayers[pid] || { x: p.x, y: p.y };
+
+    // square
+    ctx.fillStyle = p.color;
+    ctx.fillRect(sp.x - 15, sp.y - 15, 30, 30);
+
+    if (parseInt(pid) === client.pid) {
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sp.x - 15, sp.y - 15, 30, 30);
+    }
+
+    ctx.fillStyle = "#071827";
+    ctx.fillText(`P${pid}`, sp.x - 10, sp.y - 25);
+  }
+
+  // small latency indicator (if we have state)
+  if (lastStateReceived) {
+    const age = Math.round((Date.now() - lastStateReceived) / 1000);
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(6, canvas.height - 26, 170, 20);
+    ctx.fillStyle = "#cbd6e8";
+    ctx.fillText(`last state: ${age}s ago`, 10, canvas.height - 10);
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
